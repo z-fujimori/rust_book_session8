@@ -2,7 +2,8 @@ use std::{fs::File, io::{BufReader, BufWriter}};
 
 use chrono::{NaiveDateTime}; // NaiveDateTimeはタイムゾーンが含まれない時間情報。DateTimeは含まれる。
 use serde::{Deserialize, Serialize};
-use clap::{Parser, Subcommand};
+use clap::{error, Parser, Subcommand};
+use thiserror::Error;
 
 // use rstest::rstest;
 
@@ -51,6 +52,30 @@ enum Commands {
   }
 }
 
+#[derive(thiserror::Error, Debug)]
+enum MyError {
+	#[error("io error: {0}")]
+	Io(#[from] std::io::Error),
+	
+	#[error("json error: {0}")]
+	Json(#[from] serde_json::Error),
+}
+// // 下記を上記のように書ける　
+// enum MyError {
+// 	Io(std::io::Error),
+// 	Json(serde_json::Error),
+// }
+// impl From<std::io::Error> for MyError {
+//     fn from(err: std::io::Error) -> Self {
+//         MyError::Io(err)
+//     }
+// }
+// impl From<serde_json::Error> for MyError {
+//   fn from(err: serde_json::Error) -> Self {
+//       MyError::Json(err)
+//   }
+// }
+
 fn main() {
   let options = Cli::parse();
   match options.command {
@@ -58,7 +83,7 @@ fn main() {
     Commands::Add { subject, start, end }
       => add_schedule(subject, start, end),
     Commands::Delete { id } => {
-      let mut calendar = read_calendar();
+      let mut calendar = read_calendar().unwrap();
       if delete_schedule(&mut calendar, id) {
         save_calendar(&calendar);
         println!("予定を削除しました");
@@ -79,15 +104,17 @@ fn delete_schedule(calendar: &mut Calendar, id: u64) -> bool {
   }
   false
 }
-fn read_calendar() -> Calendar {
-  let file = File::open(SCHEDULE_FILE).unwrap();
+fn read_calendar() -> Result<Calendar, std::io::Error> {
+  let file = File::open(SCHEDULE_FILE)?;
   let reader = BufReader::new(file);
-  serde_json::from_reader(reader).unwrap()
+  let calendar = serde_json::from_reader(reader).unwrap();
+  Ok(calendar)
 }
-fn save_calendar(calendar: &Calendar) {
-  let file = File::create(SCHEDULE_FILE).unwrap();
+fn save_calendar(calendar: &Calendar) ->Result<(), MyError> {
+  let file = File::create(SCHEDULE_FILE)?;
   let writer = BufWriter::new(file);
-  serde_json::to_writer(writer, calendar).unwrap();
+  serde_json::to_writer(writer, calendar)?;
+  Ok(())
 }
 fn show_list() {
   let calendar: Calendar = {
